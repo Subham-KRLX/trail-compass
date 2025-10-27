@@ -29,31 +29,43 @@ export default function CompassScreen({ navigation }) {
 
     const askForPermission = async () => {
       // TODO a) Ask for location permission
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== "granted"){
+        console.log('the permission is denied');
+        return;
+      }
 
       // TODO b) Get One-time position and save the coordinates
 
-      //* (GIVEN): Heading watcher (0..360 degrees)
-      headingSub = await Location.watchHeadingAsync(({ trueHeading }) => {
+      const position = await Location.getCurrentPositionAsync({})
+      if (mounted) {
+        setCoords({
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude
+        })
+      }
+       headingSub = await Location.watchHeadingAsync(({ trueHeading }) => {
         if (!mounted) return;
         if (typeof trueHeading === "number") setHeading(trueHeading);
       });
 
       // TODO c) Load saved pins
+
       const saved = await loadPins();
-      if (mounted) setPins(saved);
+      if (mounted){
+        setPins(saved)
+      }
     };
 
     askForPermission();
 
-    // Cleaning the component
-    return () => {
+     return () => {
       mounted = false;
       headingSub?.remove?.();
     };
   }, []);
 
-  //* (GIVEN): gentle bob animation
-  useEffect(() => {
+   useEffect(() => {
     const loop = Animated.loop(
       Animated.sequence([
         Animated.timing(bob, {
@@ -74,8 +86,7 @@ export default function CompassScreen({ navigation }) {
     return () => loop.stop();
   }, [bob]);
 
-  //* (GIVEN): Gradient orientation from heading (0° = up, clockwise)
-  const pointsForHeading = (deg = 0) => {
+   const pointsForHeading = (deg = 0) => {
     const rad = (deg * Math.PI) / 180;
     const vx = Math.sin(rad);
     const vy = -Math.cos(rad);
@@ -97,7 +108,17 @@ export default function CompassScreen({ navigation }) {
       return;
     }
     // TODO(2): push new pin {id, lat, lon, heading, ts} to state and savePins(next)
-    setSnack("TODO: save pin");
+    const newPin = {
+      id : Date.now().toString(),
+      lat: coords.latitude,
+      lon: coords.longitude,
+      heading: heading,
+      ts: nowISO(),
+    }
+    const nextPins = [newPin,...pins];
+    setPins(nextPins)
+    await savePins(nextPins);
+    setSnack("the pin is saved");
   };
 
   const copyCoords = async () => {
@@ -106,6 +127,12 @@ export default function CompassScreen({ navigation }) {
       return;
     }
     // TODO(3): Clipboard.setStringAsync("lat, lon") then snackbar
+    const lat = coords.latitude.toFixed(6) 
+    const lon = coords.longitude.toFixed(6)
+    const formattedCoords =  `${lat}, ${lon}`;
+
+    await Clipboard.setStringAsync(formattedCoords)
+    setSnack("Coordinates are copied to clipboard");
   };
 
   const shareCoords = async () => {
@@ -114,10 +141,26 @@ export default function CompassScreen({ navigation }) {
       return;
     }
     // TODO(4): Share.share with message including coords + heading + cardinal
+    const lat = coords.latitude.toFixed(6)
+    const lon = coords.longitude.toFixed(6)
+    const cardinal = toCardinal(heading ?? 0);
+    const degrees = heading != null ? `${Math.round(heading)}°` : "—";
+
+    const message = `I am here: ${lat},${lon} (${cardinal} at ${degrees})`;
+
+    try {
+      await Share.share({
+        message: message,
+      })
+      setSnack("Share Initiated");
+    } catch (error) {
+      setSnack("Error sharing coordinates")
+      console.log({message: error.message});
+    }
+
   };
 
-  // Make DARK end point opposite heading: add 180°
-  const { start, end } = pointsForHeading(((heading ?? 0) + 180) % 360);
+   const { start, end } = pointsForHeading(((heading ?? 0) + 180) % 360);
   const bobY = bob.interpolate({ inputRange: [0, 1], outputRange: [0, -8] });
 
   return (
